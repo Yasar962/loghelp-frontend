@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { Link } from "react-router-dom";
+import Navbar from "./navigationbar";
 
 /* ─────────────────────────────────────────────
    FAKE LOG STREAM DATA
@@ -175,12 +176,12 @@ const STYLES = `
   /* ── HERO ── */
   .hero {
     position: relative;
-    min-height: 100vh;
+    min-height: calc(100vh - 56px); /* subtract navbar height */
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    padding: 100px 40px 80px;
+    padding: 80px 40px 80px;
     overflow: hidden;
     text-align: center;
   }
@@ -425,14 +426,6 @@ const STYLES = `
     color: #444;
     line-height: 1.7;
   }
-  .how-arrow {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 20px;
-    color: #222;
-    padding: 20px 0;
-  }
 
   /* ── FEATURES ── */
   .features-grid {
@@ -566,6 +559,9 @@ export default function LandingPage() {
       <style>{STYLES}</style>
       <div className="lp-root">
 
+        {/* ── NAVBAR ── */}
+        <Navbar />
+
         {/* ── HERO ── */}
         <section className="hero">
           <div className="hero-eyebrow">
@@ -583,7 +579,7 @@ export default function LandingPage() {
           </p>
 
           <div className="hero-actions">
-            <Link to="/dashboard" className="btn-primary">
+            <Link to="/login" className="btn-primary">
               Get Started Free →
             </Link>
             <Link to="/sdk" className="btn-ghost">
@@ -599,10 +595,10 @@ export default function LandingPage() {
         {/* ── STATS ── */}
         <div className="stats-strip">
           {[
-            { val: "<1", unit: "s",   label: "Log ingestion latency" },
-            { val: "3",  unit: " steps", label: "To full integration" },
-            { val: "AI", unit: "",    label: "Powered error analysis" },
-            { val: "0",  unit: " lines", label: "Of code changes needed" },
+            { val: "<1", unit: "s",      label: "Log ingestion latency"    },
+            { val: "3",  unit: " steps", label: "To full integration"      },
+            { val: "AI", unit: "",       label: "Powered error analysis"   },
+            { val: "0",  unit: " lines", label: "Of code changes needed"   },
           ].map((s, i) => (
             <div className="stat-item" key={i}>
               <div className="stat-val">{s.val}<span>{s.unit}</span></div>
@@ -704,7 +700,7 @@ export default function LandingPage() {
           </div>
           <div className="cta-banner-actions">
             <Link to="/sdk" className="btn-ghost">Read the Docs</Link>
-            <Link to="/dashboard" className="btn-primary">Start for Free →</Link>
+            <Link to="/login" className="btn-primary">Start for Free →</Link>
           </div>
         </div>
 
@@ -719,7 +715,6 @@ export default function LandingPage() {
           <div className="lp-footer-links">
             <a href="/sdk">Docs</a>
             <a href="/dashboard">Dashboard</a>
-            <a href="/health">Health</a>
           </div>
           <span>© 2025 LogHelp · Apache 2.0</span>
         </footer>

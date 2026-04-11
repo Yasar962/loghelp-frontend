@@ -4,8 +4,18 @@ import {
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend
 } from "recharts";
 
-const API_KEY  = "240c88b3-396b-46dc-92ca-e798e44e11b2";
 const BASE_URL = "https://loghelp.onrender.com";
+
+/* ─────────────────────────────────────────────
+   AUTH HELPERS (mirrored from Dashboardpage)
+───────────────────────────────────────────── */
+function getToken() { return localStorage.getItem("token") || ""; }
+function authHeaders() {
+  return {
+    "Authorization": `Bearer ${getToken()}`,
+    "Content-Type": "application/json"
+  };
+}
 
 /* ─────────────────────────────────────────────
    STYLES
@@ -91,6 +101,19 @@ const STYLES = `
     color: #2e2e2e;
   }
   .am-card-body { padding: 24px 20px; }
+
+  /* ── No project state ── */
+  .am-no-project {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 220px;
+    gap: 10px;
+    color: #333;
+    font-size: 13px;
+  }
+  .am-no-project-icon { font-size: 28px; opacity: 0.3; }
 
   /* ── Loading / error ── */
   .am-loading {
@@ -211,12 +234,6 @@ function statusGroup(code) {
   if (code < 500) return "4xx";
   return "5xx";
 }
-function statusColor(code) {
-  if (code < 300) return "#00ed64";
-  if (code < 400) return "#3b82f6";
-  if (code < 500) return "#f5a623";
-  return "#ff4d4d";
-}
 function errRateClass(r) {
   if (r < 0.02) return "low";
   if (r < 0.1)  return "mid";
@@ -246,22 +263,28 @@ function ChartTooltip({ active, payload, label, formatter }) {
 }
 
 /* ─────────────────────────────────────────────
-   FETCH HOOK
+   FETCH HOOK — uses projectId + auth headers
 ───────────────────────────────────────────── */
-function useMetric(path) {
+function useMetric(path, projectId) {
   const [data,    setData]    = useState(null);
   const [loading, setLoading] = useState(true);
   const [error,   setError]   = useState(null);
 
   useEffect(() => {
-    setLoading(true); setError(null);
-    fetch(`${BASE_URL}${path}?projectId=4`, {
-      headers: { "x-api-key": API_KEY }
+    if (!projectId) {
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    setError(null);
+
+    fetch(`${BASE_URL}${path}?projectId=${projectId}`, {
+      headers: authHeaders()
     })
       .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
       .then(d => { setData(d); setLoading(false); })
       .catch(e => { setError(e.message); setLoading(false); });
-  }, [path]);
+  }, [path, projectId]);
 
   return { data, loading, error };
 }
@@ -269,7 +292,27 @@ function useMetric(path) {
 /* ─────────────────────────────────────────────
    CHART WRAPPER
 ───────────────────────────────────────────── */
-function ChartCard({ icon, title, subtitle, loading, error, height = 220, children }) {
+function ChartCard({ icon, title, subtitle, loading, error, projectId, height = 220, children }) {
+  // No project selected
+  if (!projectId) {
+    return (
+      <div className="am-card">
+        <div className="am-card-header">
+          <div className="am-card-header-left">
+            <span className="am-card-icon">{icon}</span>
+            <span className="am-card-title">{title}</span>
+          </div>
+        </div>
+        <div className="am-card-body">
+          <div className="am-no-project">
+            <span className="am-no-project-icon">📂</span>
+            <span>No project selected</span>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="am-card">
       <div className="am-card-header">
@@ -300,15 +343,15 @@ function ChartCard({ icon, title, subtitle, loading, error, height = 220, childr
 }
 
 /* ─────────────────────────────────────────────
-   VIEWS
+   VIEWS — each accepts projectId prop
 ───────────────────────────────────────────── */
 
-/* 1. Response Time Trend */
-function ResponseTimeTrend() {
-  const { data, loading, error } = useMetric("/api/metrics/response-time");
+function ResponseTimeTrend({ projectId }) {
+  const { data, loading, error } = useMetric("/api/metrics/response-time", projectId);
   const formatted = data?.map(d => ({ ...d, time: fmtTime(d.timestamp) })) ?? [];
   return (
-    <ChartCard icon="📈" title="Response Time Trend" subtitle="Avg latency over time" loading={loading} error={error} height={240}>
+    <ChartCard icon="📈" title="Response Time Trend" subtitle="Avg latency over time"
+      loading={loading} error={error} projectId={projectId} height={240}>
       <ResponsiveContainer width="100%" height="100%">
         <LineChart data={formatted} margin={{ top: 4, right: 16, left: 0, bottom: 0 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="#161616" />
@@ -323,11 +366,11 @@ function ResponseTimeTrend() {
   );
 }
 
-/* 2. Slowest Endpoints */
-function SlowestEndpoints() {
-  const { data, loading, error } = useMetric("/api/metrics/slow-endpoints");
+function SlowestEndpoints({ projectId }) {
+  const { data, loading, error } = useMetric("/api/metrics/slow-endpoints", projectId);
   return (
-    <ChartCard icon="🐢" title="Slowest Endpoints" subtitle="Ranked by avg latency" loading={loading} error={error} height={240}>
+    <ChartCard icon="🐢" title="Slowest Endpoints" subtitle="Ranked by avg latency"
+      loading={loading} error={error} projectId={projectId} height={240}>
       <ResponsiveContainer width="100%" height="100%">
         <BarChart data={data ?? []} layout="vertical" margin={{ top: 4, right: 40, left: 8, bottom: 0 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="#161616" horizontal={false} />
@@ -342,12 +385,12 @@ function SlowestEndpoints() {
   );
 }
 
-/* 3. Traffic Over Time */
-function TrafficOverTime() {
-  const { data, loading, error } = useMetric("/api/metrics/traffic");
+function TrafficOverTime({ projectId }) {
+  const { data, loading, error } = useMetric("/api/metrics/traffic", projectId);
   const formatted = data?.map(d => ({ ...d, time: fmtTime(d.timestamp) })) ?? [];
   return (
-    <ChartCard icon="📡" title="Request Traffic" subtitle="Volume over time" loading={loading} error={error} height={240}>
+    <ChartCard icon="📡" title="Request Traffic" subtitle="Volume over time"
+      loading={loading} error={error} projectId={projectId} height={240}>
       <ResponsiveContainer width="100%" height="100%">
         <BarChart data={formatted} margin={{ top: 4, right: 16, left: 0, bottom: 0 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="#161616" />
@@ -361,11 +404,11 @@ function TrafficOverTime() {
   );
 }
 
-/* 4. Top Endpoints */
-function TopEndpoints() {
-  const { data, loading, error } = useMetric("/api/metrics/top-endpoints");
+function TopEndpoints({ projectId }) {
+  const { data, loading, error } = useMetric("/api/metrics/top-endpoints", projectId);
   return (
-    <ChartCard icon="🏆" title="Top Endpoints" subtitle="By request count" loading={loading} error={error} height={240}>
+    <ChartCard icon="🏆" title="Top Endpoints" subtitle="By request count"
+      loading={loading} error={error} projectId={projectId} height={240}>
       <ResponsiveContainer width="100%" height="100%">
         <BarChart data={data ?? []} layout="vertical" margin={{ top: 4, right: 40, left: 8, bottom: 0 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="#161616" horizontal={false} />
@@ -380,9 +423,8 @@ function TopEndpoints() {
   );
 }
 
-/* 5. Status Code Distribution */
-function StatusDistribution() {
-  const { data, loading, error } = useMetric("/api/metrics/status-distribution");
+function StatusDistribution({ projectId }) {
+  const { data, loading, error } = useMetric("/api/metrics/status-distribution", projectId);
 
   const grouped = data?.reduce((acc, d) => {
     const g = statusGroup(d.statusCode);
@@ -393,7 +435,8 @@ function StatusDistribution() {
   const COLORS  = { "2xx":"#00ed64", "3xx":"#3b82f6", "4xx":"#f5a623", "5xx":"#ff4d4d" };
 
   return (
-    <ChartCard icon="🥧" title="Status Distribution" subtitle="HTTP response codes" loading={loading} error={error} height={240}>
+    <ChartCard icon="🥧" title="Status Distribution" subtitle="HTTP response codes"
+      loading={loading} error={error} projectId={projectId} height={240}>
       <ResponsiveContainer width="100%" height="100%">
         <PieChart>
           <Pie data={pieData} cx="50%" cy="50%" innerRadius={60} outerRadius={90}
@@ -411,12 +454,12 @@ function StatusDistribution() {
   );
 }
 
-/* 6. Error Rate Over Time */
-function ErrorRateOverTime() {
-  const { data, loading, error } = useMetric("/api/metrics/error-rate");
+function ErrorRateOverTime({ projectId }) {
+  const { data, loading, error } = useMetric("/api/metrics/error-rate", projectId);
   const formatted = data?.map(d => ({ ...d, time: fmtTime(d.timestamp), pct: +(d.errorRate * 100).toFixed(2) })) ?? [];
   return (
-    <ChartCard icon="📉" title="Error Rate" subtitle="% of requests over time" loading={loading} error={error} height={240}>
+    <ChartCard icon="📉" title="Error Rate" subtitle="% of requests over time"
+      loading={loading} error={error} projectId={projectId} height={240}>
       <ResponsiveContainer width="100%" height="100%">
         <LineChart data={formatted} margin={{ top: 4, right: 16, left: 0, bottom: 0 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="#161616" />
@@ -431,11 +474,11 @@ function ErrorRateOverTime() {
   );
 }
 
-/* 7. Endpoint Health Table */
-function EndpointHealthTable() {
-  const { data, loading, error } = useMetric("/api/metrics/endpoint-health");
+function EndpointHealthTable({ projectId }) {
+  const { data, loading, error } = useMetric("/api/metrics/endpoint-health", projectId);
   return (
-    <ChartCard icon="🩺" title="Endpoint Health" subtitle="Per-endpoint overview" loading={loading} error={error} height="auto">
+    <ChartCard icon="🩺" title="Endpoint Health" subtitle="Per-endpoint overview"
+      loading={loading} error={error} projectId={projectId} height="auto">
       <div className="am-table-wrap">
         <table className="am-table">
           <thead>
@@ -483,18 +526,18 @@ function EndpointHealthTable() {
    TABS CONFIG
 ───────────────────────────────────────────── */
 const TABS = [
-  { id:"overview",   label:"Overview",          icon:"⚡" },
-  { id:"latency",    label:"Response Time",      icon:"📈" },
-  { id:"traffic",    label:"Traffic",            icon:"📡" },
-  { id:"errors",     label:"Error Rate",         icon:"📉" },
-  { id:"status",     label:"Status Codes",       icon:"🥧" },
-  { id:"endpoints",  label:"Endpoint Health",    icon:"🩺" },
+  { id:"overview",   label:"Overview",       icon:"⚡" },
+  { id:"latency",    label:"Response Time",  icon:"📈" },
+  { id:"traffic",    label:"Traffic",        icon:"📡" },
+  { id:"errors",     label:"Error Rate",     icon:"📉" },
+  { id:"status",     label:"Status Codes",   icon:"🥧" },
+  { id:"endpoints",  label:"Endpoint Health",icon:"🩺" },
 ];
 
 /* ─────────────────────────────────────────────
-   MAIN COMPONENT
+   MAIN COMPONENT — accepts projectId prop
 ───────────────────────────────────────────── */
-export default function ApiMetrics() {
+export default function ApiMetrics({ projectId }) {
   const [activeTab, setActiveTab] = useState("overview");
 
   function renderTab() {
@@ -503,41 +546,41 @@ export default function ApiMetrics() {
         return (
           <>
             <div className="am-grid-2">
-              <ResponseTimeTrend />
-              <TrafficOverTime />
+              <ResponseTimeTrend projectId={projectId} />
+              <TrafficOverTime   projectId={projectId} />
             </div>
             <div className="am-grid-2">
-              <StatusDistribution />
-              <ErrorRateOverTime />
+              <StatusDistribution  projectId={projectId} />
+              <ErrorRateOverTime   projectId={projectId} />
             </div>
-            <EndpointHealthTable />
+            <EndpointHealthTable projectId={projectId} />
           </>
         );
       case "latency":
         return (
           <>
-            <ResponseTimeTrend />
-            <SlowestEndpoints />
+            <ResponseTimeTrend  projectId={projectId} />
+            <SlowestEndpoints   projectId={projectId} />
           </>
         );
       case "traffic":
         return (
           <>
-            <TrafficOverTime />
-            <TopEndpoints />
+            <TrafficOverTime  projectId={projectId} />
+            <TopEndpoints     projectId={projectId} />
           </>
         );
       case "errors":
-        return <ErrorRateOverTime />;
+        return <ErrorRateOverTime projectId={projectId} />;
       case "status":
-        return <StatusDistribution />;
+        return <StatusDistribution projectId={projectId} />;
       case "endpoints":
         return (
           <>
-            <EndpointHealthTable />
+            <EndpointHealthTable projectId={projectId} />
             <div className="am-grid-2">
-              <SlowestEndpoints />
-              <TopEndpoints />
+              <SlowestEndpoints projectId={projectId} />
+              <TopEndpoints     projectId={projectId} />
             </div>
           </>
         );
@@ -550,7 +593,6 @@ export default function ApiMetrics() {
     <>
       <style>{STYLES}</style>
       <div className="am-root">
-        {/* Tab bar */}
         <div className="am-tabs">
           {TABS.map(t => (
             <button
@@ -563,8 +605,6 @@ export default function ApiMetrics() {
             </button>
           ))}
         </div>
-
-        {/* Content */}
         {renderTab()}
       </div>
     </>

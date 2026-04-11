@@ -7,8 +7,79 @@ const BASE_URL = "https://loghelp.onrender.com";
 // Auth helpers
 function getToken() { return localStorage.getItem("token") || ""; }
 function authHeaders() { return { "Authorization": `Bearer ${getToken()}`, "Content-Type": "application/json" }; }
-function logout() { localStorage.removeItem("token"); localStorage.removeItem("user"); window.location.href = "/login"; }
+
+// ✅ FIX 2: redirect to /login (not "/") so LandingRoute doesn't loop back to dashboard
+function logout() {
+  localStorage.removeItem("token");
+  localStorage.removeItem("refreshToken");
+  localStorage.removeItem("user");
+  window.location.href = "/login";
+}
+
 function getUser() { try { return JSON.parse(localStorage.getItem("user") || "null"); } catch { return null; } }
+
+/* ─────────────────────────────────────────────
+   API FETCH (AUTO REFRESH)
+───────────────────────────────────────────── */
+async function refreshTokenApi() {
+  const refreshToken = localStorage.getItem("refreshToken");
+  if (!refreshToken) return false;
+
+  try {
+    const res = await fetch(`${BASE_URL}/auth/refresh`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ refreshToken }),
+    });
+
+    if (!res.ok) return false;
+
+    const data = await res.json();
+    localStorage.setItem("token", data.accessToken);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function apiFetch(url, options = {}) {
+  let token = getToken();
+
+  let res = await fetch(url, {
+    ...options,
+    headers: {
+      "Content-Type": "application/json",
+      ...(options.headers || {}),
+      Authorization: `Bearer ${token}`,
+    },
+  });
+
+  // 🔥 Token expired
+  if (res.status === 401) {
+    const refreshed = await refreshTokenApi();
+
+    if (!refreshed) {
+      logout(); // ✅ This now goes to /login
+      return;
+    }
+
+    token = getToken();
+
+    // 🔁 retry
+    res = await fetch(url, {
+      ...options,
+      headers: {
+        "Content-Type": "application/json",
+        ...(options.headers || {}),
+        Authorization: `Bearer ${token}`,
+      },
+    });
+  }
+
+  return res;
+}
+
+
 
 /* ─────────────────────────────────────────────
    STYLES
@@ -309,9 +380,9 @@ const PAGE_SIZE = 10;
    CREATE PROJECT MODAL
 ───────────────────────────────────────────── */
 function CreateProjectModal({ onClose, onCreated }) {
-  const [name,        setName]        = useState("");
-  const [loading,     setLoading]     = useState(false);
-  const [error,       setError]       = useState(null);
+  const [name,    setName]    = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error,   setError]   = useState(null);
 
   async function handleCreate() {
     if (!name.trim()) { setError("Project name is required."); return; }
@@ -353,7 +424,6 @@ function CreateProjectModal({ onClose, onCreated }) {
               autoFocus
             />
           </div>
-          {/* DESCRIPTION FIELD REMOVED */}
           {error && <div className="modal-error">⚠ {error}</div>}
         </div>
         <div className="modal-footer">
@@ -370,6 +440,7 @@ function CreateProjectModal({ onClose, onCreated }) {
 
 /* ─────────────────────────────────────────────
    AI ANALYSIS VIEW
+   ✅ FIX 1: Use correct endpoint per mode
 ───────────────────────────────────────────── */
 function AiAnalysisView({ issue, mode, onBack }) {
   const [content, setContent] = useState(null);
@@ -378,10 +449,19 @@ function AiAnalysisView({ issue, mode, onBack }) {
 
   useEffect(() => {
     setLoading(true); setError(null); setContent(null);
-    fetch(`${BASE_URL}/api/logs/debug/${issue.traceId}`, {
-      headers: authHeaders()
-    })
-      .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.text(); })
+
+    // ✅ FIX 1: Route to different endpoints based on mode
+    // "fix"  → /api/logs/fix/{traceId}
+    // "root" → /api/logs/debug/{traceId}
+    const endpoint = mode === "fix"
+      ? `${BASE_URL}/api/logs/fix/${issue.traceId}`
+      : `${BASE_URL}/api/logs/debug/${issue.traceId}`;
+
+    fetch(endpoint, { headers: authHeaders() })
+      .then(r => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return r.text();
+      })
       .then(raw => {
         try {
           const data = JSON.parse(raw);
@@ -395,7 +475,7 @@ function AiAnalysisView({ issue, mode, onBack }) {
         setLoading(false);
       })
       .catch(e => { setError(e.message); setLoading(false); });
-  }, [issue.traceId]);
+  }, [issue.traceId, mode]);
 
   return (
     <div className="view-slide">
@@ -421,7 +501,9 @@ function AiAnalysisView({ issue, mode, onBack }) {
         {loading && (
           <div className="ai-loading">
             <div className="ai-loading-spinner" />
-            <span className="ai-loading-label">Analyzing logs…</span>
+            <span className="ai-loading-label">
+              {mode === "fix" ? "Generating fix suggestion…" : "Analyzing root cause…"}
+            </span>
             <span className="ai-loading-sub">Gemini is reading your stack trace</span>
           </div>
         )}
@@ -624,13 +706,13 @@ export default function DashboardPage() {
   const [counts,          setCounts]          = useState({ total:0, errors:0, open:0, resolved:0 });
   const [analyzing,       setAnalyzing]       = useState(null);
   const [showCreate,      setShowCreate]      = useState(false);
+  const [apiKey,          setApiKey]          = useState(null);
   const user = getUser();
 
-  // Fetch real projects on mount
   useEffect(() => {
     setProjectsLoading(true);
-    fetch(`${BASE_URL}/api/projects/me`, { headers: authHeaders() })
-      .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
+    apiFetch(`${BASE_URL}/api/projects/me`)
+      .then(r => { if (!r || !r.ok) throw new Error(`HTTP ${r?.status}`); return r.json(); })
       .then(data => {
         const list = Array.isArray(data) ? data : (data.projects ?? data.content ?? []);
         setProjects(list);
@@ -654,7 +736,6 @@ export default function DashboardPage() {
     setShowCreate(false);
   }
 
-  /* ── Sidebar project section ── */
   function renderSidebarProject() {
     if (projectsLoading) {
       return <span className="sidebar-project-loading">Loading…</span>;
@@ -682,9 +763,22 @@ export default function DashboardPage() {
     );
   }
 
-  /* ── Main content ── */
+  async function fetchApiKey() {
+    if (!projectId) return;
+    try {
+      const res = await fetch(`${BASE_URL}/api/projects/${projectId}/api-key`, {
+        headers: authHeaders()
+      });
+      if (!res.ok) throw new Error("Failed to fetch key");
+      const data = await res.json();
+      setApiKey(data.apiKey);
+      alert(`Your API Key: ${data.apiKey}\n\nKeep this safe!`);
+    } catch (e) {
+      alert("Error fetching API Key: " + e.message);
+    }
+  }
+
   function renderContent() {
-    // No projects → full-page empty state
     if (!projectsLoading && !hasProjects) {
       return (
         <div className="no-project-state">
@@ -737,28 +831,36 @@ export default function DashboardPage() {
             />
           </>
         );
+
       case "health":
         return (
           <>
             <div className="content-header">
               <div className="content-eyebrow">Monitor · Health</div>
               <div className="content-title">Health Report</div>
-              <div className="content-desc">AI-generated 24-hour health summary for <strong style={{ color:"#555", fontWeight:600 }}>{activeProject?.name ?? "…"}</strong></div>
+              <div className="content-desc">
+                AI-generated 24-hour health summary for <strong style={{ color:"#555", fontWeight:600 }}>{activeProject?.name ?? "…"}</strong>
+              </div>
             </div>
-            <HealthReport />
+            {/* ✅ FIX 3: Pass projectId down to HealthReport */}
+            <HealthReport projectId={projectId} />
           </>
         );
+
       case "metrics":
         return (
           <>
             <div className="content-header">
               <div className="content-eyebrow">Monitor · Metrics</div>
               <div className="content-title">API Metrics</div>
-              <div className="content-desc">Performance and traffic insights for <strong style={{ color:"#555", fontWeight:600 }}>{activeProject?.name ?? "…"}</strong></div>
+              <div className="content-desc">
+                Performance and traffic insights for <strong style={{ color:"#555", fontWeight:600 }}>{activeProject?.name ?? "…"}</strong>
+              </div>
             </div>
-            <ApiMetrics />
+            <ApiMetrics projectId={projectId}/>
           </>
         );
+
       default:
         return (
           <div style={{ padding:"60px 24px", display:"flex", flexDirection:"column", alignItems:"center", gap:16, color:"#2a2a2a", border:"1px dashed #1a1a1a", borderRadius:6, background:"#0d0d0d" }}>
@@ -796,13 +898,8 @@ export default function DashboardPage() {
           <div className="sidebar-project">
             <div className="sidebar-project-label">Project</div>
             {renderSidebarProject()}
-            {/* Always show "+ New" when projects exist */}
             {!projectsLoading && hasProjects && (
-              <button
-                className="sidebar-create-btn"
-                style={{ marginTop:8 }}
-                onClick={() => setShowCreate(true)}
-              >
+              <button className="sidebar-create-btn" style={{ marginTop:8 }} onClick={() => setShowCreate(true)}>
                 + New project
               </button>
             )}
@@ -857,6 +954,25 @@ export default function DashboardPage() {
             </div>
             <div className="dash-topbar-right">
               <div className="dash-live-pill"><div className="dash-live-dot"/>Live</div>
+              <button
+                onClick={fetchApiKey}
+                disabled={!projectId}
+                style={{
+                  background: "#00ed64",
+                  border: "none",
+                  borderRadius: 4,
+                  color: "#000",
+                  fontSize: 11,
+                  fontWeight: 600,
+                  fontFamily: "var(--font)",
+                  padding: "5px 12px",
+                  cursor: "pointer",
+                  marginRight: "8px",
+                  opacity: projectId ? 1 : 0.5
+                }}
+              >
+                Get API Key
+              </button>
               {user?.picture && (
                 <img src={user.picture} alt={user.name}
                   style={{ width:28, height:28, borderRadius:"50%", border:"1px solid #1e1e1e", flexShrink:0 }} />

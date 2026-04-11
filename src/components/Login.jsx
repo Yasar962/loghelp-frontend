@@ -288,7 +288,7 @@ const GoogleIcon = () => (
 const Login = () => {
   const handleLogin = () => {
     const clientId = "626987750607-3g7csqnf0d8j1ers56tvcolti7fns1aa.apps.googleusercontent.com";
-    const redirectUri = "http://localhost:8080/oauth/google/callback";
+    const redirectUri = "https://loghelp.onrender.com/oauth/google/callback";
     const url = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${clientId}&redirect_uri=${redirectUri}&response_type=code&scope=openid email profile&access_type=offline`;
     window.location.href = url;
   };

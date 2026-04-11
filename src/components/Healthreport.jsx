@@ -1,7 +1,17 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
-const API_KEY  = "240c88b3-396b-46dc-92ca-e798e44e11b2";
 const BASE_URL = "https://loghelp.onrender.com";
+
+/* ─────────────────────────────────────────────
+   AUTH HELPERS
+───────────────────────────────────────────── */
+function getToken() { return localStorage.getItem("token") || ""; }
+function authHeaders() {
+  return {
+    "Authorization": `Bearer ${getToken()}`,
+    "Content-Type": "application/json"
+  };
+}
 
 /* ─────────────────────────────────────────────
    STYLES
@@ -17,6 +27,24 @@ const STYLES = `
   @keyframes hrFadeIn { from{opacity:0;transform:translateY(6px)} to{opacity:1;transform:none} }
   @keyframes hrSpin   { to{transform:rotate(360deg)} }
   @keyframes hrPulse  { 0%,100%{opacity:1} 50%{opacity:0.35} }
+
+  /* ── No project state ── */
+  .hr-no-project {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 420px;
+    gap: 14px;
+    border: 1px dashed #1e1e1e;
+    border-radius: 6px;
+    background: #0d0d0d;
+    text-align: center;
+    padding: 40px;
+    color: #333;
+    font-size: 13px;
+  }
+  .hr-no-project-icon { font-size: 28px; opacity: 0.3; }
 
   /* ── Empty state ── */
   .hr-empty {
@@ -78,7 +106,7 @@ const STYLES = `
     flex-shrink: 0;
   }
 
-  /* ── Loading overlay (full-page generating state) ── */
+  /* ── Loading overlay ── */
   .hr-generating {
     display: flex;
     flex-direction: column;
@@ -139,10 +167,34 @@ const STYLES = `
     letter-spacing: -0.02em;
     color: #fff;
   }
+  .hr-generated-meta {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+  }
   .hr-generated-at {
     font-size: 11px;
     font-family: 'Source Code Pro', monospace;
-    color: #2e2e2e;
+    color: #3a3a3a;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+  }
+  .hr-generated-ago {
+    font-size: 10px;
+    font-family: 'Source Code Pro', monospace;
+    color: #2a2a2a;
+    letter-spacing: 0.04em;
+  }
+  .hr-regen-spinner {
+    display: inline-block;
+    width: 11px; height: 11px;
+    border: 1.5px solid #2a2a2a;
+    border-top-color: #888;
+    border-radius: 50%;
+    animation: hrSpin 0.7s linear infinite;
+    vertical-align: middle;
+    margin-right: 4px;
   }
   .hr-regen-btn {
     background: none;
@@ -270,7 +322,85 @@ const STYLES = `
     color: #666;
     line-height: 1.75;
   }
+  .hr-card-body h1, .hr-card-body h2 {
+    font-size: 13px; font-weight: 700; color: #bbb;
+    letter-spacing: -0.01em; margin: 16px 0 8px;
+    padding-bottom: 6px; border-bottom: 1px solid #161616;
+  }
+  .hr-card-body h1:first-child, .hr-card-body h2:first-child,
+  .hr-card-body h3:first-child, .hr-card-body h4:first-child { margin-top: 0; }
+  .hr-card-body h3 { font-size: 12px; font-weight: 700; color: #999; margin: 14px 0 6px; }
+  .hr-card-body h4 { font-size: 12px; font-weight: 600; color: #777; margin: 10px 0 4px; }
+  .hr-card-body p  { margin-bottom: 10px; color: #666; }
+  .hr-card-body p:last-child { margin-bottom: 0; }
+  .hr-card-body strong { color: #ccc; font-weight: 600; }
+  .hr-card-body em { font-style: italic; color: #777; }
+  .hr-card-body ul, .hr-card-body ol { padding-left: 18px; margin-bottom: 10px; }
+  .hr-card-body li { margin-bottom: 5px; color: #666; }
+  .hr-card-body code {
+    font-family: 'Source Code Pro', monospace; font-size: 11px;
+    color: #00ed64; background: rgba(0,237,100,0.07);
+    border: 1px solid rgba(0,237,100,0.12); padding: 1px 5px; border-radius: 3px;
+  }
+  .hr-card-body pre {
+    background: #0a0a0a; border: 1px solid #1e1e1e; border-radius: 4px;
+    padding: 12px 14px; overflow-x: auto; margin: 10px 0;
+  }
+  .hr-card-body pre code { background: none; border: none; padding: 0; color: #c8c8c8; font-size: 11.5px; }
+  .hr-card-body blockquote {
+    border-left: 2px solid #00ed64; padding: 6px 14px; margin: 10px 0;
+    background: rgba(0,237,100,0.03); color: #555; font-style: italic;
+  }
+  .hr-card-body hr { border: none; border-top: 1px solid #161616; margin: 14px 0; }
+
+  /* ── Error state ── */
+  .hr-error {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 420px;
+    gap: 12px;
+    border: 1px solid rgba(255,77,77,0.15);
+    border-radius: 6px;
+    background: rgba(255,77,77,0.03);
+    text-align: center;
+    padding: 40px;
+  }
+  .hr-error-icon  { font-size: 28px; opacity: 0.4; }
+  .hr-error-title { font-size: 14px; font-weight: 600; color: #ff4d4d; }
+  .hr-error-msg   { font-size: 11px; color: #2e2e2e; font-family: 'Source Code Pro', monospace; }
 `;
+
+/* ─────────────────────────────────────────────
+   MARKDOWN RENDERER
+───────────────────────────────────────────── */
+function renderMarkdown(md) {
+  if (!md) return "";
+  return md
+    .replace(/```(\w*)\n?([\s\S]*?)```/g, (_, _lang, code) =>
+      `<pre><code>${code.replace(/</g,"&lt;").replace(/>/g,"&gt;").trim()}</code></pre>`)
+    .replace(/^#### (.+)$/gm, "<h4>$1</h4>")
+    .replace(/^### (.+)$/gm,  "<h3>$1</h3>")
+    .replace(/^## (.+)$/gm,   "<h2>$1</h2>")
+    .replace(/^# (.+)$/gm,    "<h1>$1</h1>")
+    .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+    .replace(/\*(.+?)\*/g,     "<em>$1</em>")
+    .replace(/`([^`]+)`/g,     "<code>$1</code>")
+    .replace(/^---$/gm,        "<hr>")
+    .replace(/^> (.+)$/gm,     "<blockquote>$1</blockquote>")
+    .replace(/^\s*[-*] (.+)$/gm, "<li>$1</li>")
+    .replace(/^\s*\d+\. (.+)$/gm, "<li>$1</li>")
+    .replace(/(<li>[\s\S]*?<\/li>\n?)+/g, m => `<ul>${m}</ul>`)
+    .split("\n\n")
+    .map(b => {
+      const t = b.trim();
+      if (!t) return "";
+      if (/^<(h[1-4]|ul|ol|pre|blockquote|hr)/.test(t)) return t;
+      return `<p>${t}</p>`;
+    })
+    .join("\n");
+}
 
 /* ─────────────────────────────────────────────
    STATUS CONFIG
@@ -283,26 +413,84 @@ const STATUS_CONFIG = {
 
 /* ─────────────────────────────────────────────
    HEALTH REPORT COMPONENT
+   ✅ FIX 3: Accepts projectId prop, uses auth token
 ───────────────────────────────────────────── */
-export default function HealthReport() {
-  const [report,     setReport]     = useState(null);   // HealthSummaryResponse
-  const [loading,    setLoading]    = useState(false);
-  const [error,      setError]      = useState(null);
-  const [generatedAt,setGeneratedAt]= useState(null);
+/* ─────────────────────────────────────────────
+   STORAGE HELPERS — persist report per project
+───────────────────────────────────────────── */
+function saveReport(projectId, report, generatedAt) {
+  try {
+    localStorage.setItem(
+      `health_report_${projectId}`,
+      JSON.stringify({ report, generatedAt: generatedAt.toISOString() })
+    );
+  } catch {}
+}
+
+function loadReport(projectId) {
+  try {
+    const raw = localStorage.getItem(`health_report_${projectId}`);
+    if (!raw) return null;
+    const { report, generatedAt } = JSON.parse(raw);
+    return { report, generatedAt: new Date(generatedAt) };
+  } catch {
+    return null;
+  }
+}
+
+export default function HealthReport({ projectId }) {
+  // Initialise from localStorage so the report survives page refreshes
+  const [report,      setReport]      = useState(() => loadReport(projectId)?.report      ?? null);
+  const [generatedAt, setGeneratedAt] = useState(() => loadReport(projectId)?.generatedAt ?? null);
+  const [loading,     setLoading]     = useState(false);
+  const [error,       setError]       = useState(null);
+
+  // When the selected project changes, load that project's cached report
+  useEffect(() => {
+    const cached = loadReport(projectId);
+    if (cached) {
+      setReport(cached.report);
+      setGeneratedAt(cached.generatedAt);
+    } else {
+      setReport(null);
+      setGeneratedAt(null);
+    }
+    setError(null);
+  }, [projectId]);
 
   function generateReport() {
+    if (!projectId) return;
     setLoading(true);
     setError(null);
-    fetch(`${BASE_URL}/api/projects/4/health-summary`, {
-      headers: { "x-api-key": API_KEY }
+
+    fetch(`${BASE_URL}/api/projects/${projectId}/health-summary`, {
+      headers: authHeaders()
     })
       .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
       .then(data => {
+        const now = new Date();
         setReport(data);
-        setGeneratedAt(new Date());
+        setGeneratedAt(now);
         setLoading(false);
+        // ✅ Persist so the report survives page refreshes
+        saveReport(projectId, data, now);
       })
       .catch(e => { setError(e.message); setLoading(false); });
+  }
+
+  // ✅ FIX 3: Show a clear message if no project is selected
+  if (!projectId) {
+    return (
+      <>
+        <style>{STYLES}</style>
+        <div className="hr-root">
+          <div className="hr-no-project">
+            <span className="hr-no-project-icon">📂</span>
+            <span>No project selected</span>
+          </div>
+        </div>
+      </>
+    );
   }
 
   const status = report?.status ?? "HEALTHY";
@@ -324,10 +512,10 @@ export default function HealthReport() {
             </span>
             {error && (
               <span style={{ fontSize:11, color:"#ff4d4d", fontFamily:"monospace", background:"rgba(255,77,77,0.07)", border:"1px solid rgba(255,77,77,0.15)", padding:"6px 14px", borderRadius:4 }}>
-                {error}
+                ⚠ {error}
               </span>
             )}
-            <button className="hr-gen-btn" onClick={generateReport}>
+            <button className="hr-gen-btn" onClick={generateReport} disabled={loading}>
               Generate 24h Health Report
             </button>
           </div>
@@ -354,13 +542,30 @@ export default function HealthReport() {
                 </span>
                 <span className="hr-report-title">Health Report</span>
                 {generatedAt && (
-                  <span className="hr-generated-at">
-                    Generated {generatedAt.toLocaleString("en-US", { month:"short", day:"numeric", hour:"2-digit", minute:"2-digit" })}
-                  </span>
+                  <div className="hr-generated-meta">
+                    <span className="hr-generated-at">
+                      🕐 Generated on {generatedAt.toLocaleString("en-US", {
+                        weekday: "short", month: "short", day: "numeric",
+                        hour: "2-digit", minute: "2-digit"
+                      })}
+                    </span>
+                    <span className="hr-generated-ago">
+                      {(() => {
+                        const s = Math.floor((Date.now() - generatedAt) / 1000);
+                        if (s < 60) return `${s}s ago`;
+                        const m = Math.floor(s / 60); if (m < 60) return `${m}m ago`;
+                        const h = Math.floor(m / 60); if (h < 24) return `${h}h ago`;
+                        return `${Math.floor(h / 24)}d ago`;
+                      })()}
+                    </span>
+                  </div>
                 )}
               </div>
-              <button className="hr-regen-btn" onClick={generateReport}>
-                ↺ Regenerate
+              <button className="hr-regen-btn" onClick={generateReport} disabled={loading}>
+                {loading
+                  ? <><span className="hr-regen-spinner" /> Generating…</>
+                  : <>↺ Generate New Report</>
+                }
               </button>
             </div>
 
@@ -403,9 +608,7 @@ export default function HealthReport() {
                   <span className="hr-card-title">Error Analysis</span>
                   <span className="hr-card-badge error">{report.errorCount ?? 0} errors</span>
                 </div>
-                <div className="hr-card-body">
-                  {report.errorAnalysis || "No error analysis available."}
-                </div>
+                <div className="hr-card-body" dangerouslySetInnerHTML={{ __html: renderMarkdown(report.errorAnalysis) || "<p style='color:#2a2a2a'>No error analysis available.</p>" }} />
               </div>
               <div className="hr-card">
                 <div className="hr-card-header">
@@ -413,9 +616,7 @@ export default function HealthReport() {
                   <span className="hr-card-title">Warning Analysis</span>
                   <span className="hr-card-badge warning">{report.warningCount ?? 0} warnings</span>
                 </div>
-                <div className="hr-card-body">
-                  {report.warningAnalysis || "No warning analysis available."}
-                </div>
+                <div className="hr-card-body" dangerouslySetInnerHTML={{ __html: renderMarkdown(report.warningAnalysis) || "<p style='color:#2a2a2a'>No warning analysis available.</p>" }} />
               </div>
             </div>
           </>

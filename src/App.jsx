@@ -1,46 +1,59 @@
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import Login from "./components/Login";
 import DashboardPage from "./components/Dashboardpage";
-
+import LandingPage from "./components/landingpage";
+import GettingStartedPage from "./components/sdkpage"
 function DashboardRoute() {
-  // Read token from URL synchronously — before any render decision is made
-  const params   = new URLSearchParams(window.location.search);
-  const urlToken = params.get("token");
+  // Handle OAuth callback params
+  const params = new URLSearchParams(window.location.search);
+  const accessToken  = params.get("accessToken");
+  const refreshToken = params.get("refreshToken");
+  const user         = params.get("user");
 
-  if (urlToken) {
-    // Persist it and clean the URL immediately
-    localStorage.setItem("token", urlToken);
+  if (accessToken)  localStorage.setItem("token", accessToken);
+  if (refreshToken) localStorage.setItem("refreshToken", refreshToken);
+  if (user) {
+    try { localStorage.setItem("user", decodeURIComponent(user)); } catch {}
+  }
+  if (accessToken || refreshToken) {
     window.history.replaceState({}, document.title, "/dashboard");
   }
 
-  const token = urlToken || localStorage.getItem("token");
-
-  if (!token) {
-    return <Navigate to="/login" replace />;
-  }
-
+  const token = localStorage.getItem("token");
+  if (!token) return <Navigate to="/" replace />;
   return <DashboardPage />;
+}
+
+function LandingRoute() {
+  const token = localStorage.getItem("token");
+  if (token) return <Navigate to="/dashboard" replace />;
+  return <LandingPage />;
+}
+
+function LoginRoute() {
+  const token = localStorage.getItem("token");
+  if (token) return <Navigate to="/dashboard" replace />;
+  return <Login />;
 }
 
 export default function App() {
   return (
     <BrowserRouter>
       <Routes>
-        <Route
-          path="/"
-          element={
-            localStorage.getItem("token")
-              ? <Navigate to="/dashboard" replace />
-              : <Navigate to="/login" replace />
-          }
-        />
+        {/* Entry point — landing page (redirects to /dashboard if logged in) */}
+        <Route path="/"          element={<LandingRoute />} />
 
-        <Route path="/login" element={<Login />} />
+        {/* Login — also redirects to /dashboard if already logged in */}
+        <Route path="/login"     element={<LoginRoute />} />
 
-        {/* Handles both /dashboard and /dashboard?token=JWT */}
+        {/* Dashboard — redirects to / if not logged in */}
         <Route path="/dashboard" element={<DashboardRoute />} />
 
-        <Route path="*" element={<Navigate to="/login" replace />} />
+        {/* SDK docs */}
+        <Route path="/sdk"       element={<GettingStartedPage />} />
+
+        {/* Catch-all → landing */}
+        <Route path="*"          element={<Navigate to="/" replace />} />
       </Routes>
     </BrowserRouter>
   );

@@ -11,7 +11,9 @@ const styles = `
     align-items: center;
     height: 56px;
     padding: 0 32px;
-    background: #0a0a0a;
+    background: rgba(10,10,10,0.85);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
     border-bottom: 1px solid #1a1a1a;
     font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
     gap: 40px;
@@ -128,9 +130,9 @@ const styles = `
     border-radius: 50%;
     background: #00ed64;
     box-shadow: 0 0 6px #00ed64;
-    animation: pulse 2.5s ease-in-out infinite;
+    animation: navPulse 2.5s ease-in-out infinite;
   }
-  @keyframes pulse {
+  @keyframes navPulse {
     0%, 100% { opacity: 1; }
     50% { opacity: 0.4; }
   }
@@ -145,13 +147,36 @@ const styles = `
     border-radius: 3px;
     letter-spacing: 0.05em;
   }
+
+  /* Get Started button */
+  .navbar-cta {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: #00ed64;
+    color: #0a0a0a;
+    border: none;
+    border-radius: 4px;
+    font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    padding: 7px 16px;
+    cursor: pointer;
+    text-decoration: none;
+    transition: opacity 0.15s, transform 0.15s;
+    white-space: nowrap;
+  }
+  .navbar-cta:hover {
+    opacity: 0.85;
+    transform: translateY(-1px);
+  }
 `;
 
 const NAV_ITEMS = [
-  { to: '/', label: 'Home' },
-  { to: '/dashboard', label: 'Dashboard' },
-  { to: '/sdk', label: 'SDK' },
-  { to: '/health', label: 'Health Report' },
+  { to: '/',          label: 'Home'         },
+  { to: '/dashboard', label: 'Dashboard'    },
+  { to: '/sdk',       label: 'SDK Docs'     },
 ];
 
 export default function Navbar() {
@@ -198,6 +223,9 @@ export default function Navbar() {
             All systems operational
           </div>
           <span className="navbar-version">v1.0.0</span>
+          <Link to="/login" className="navbar-cta">
+            Get Started →
+          </Link>
         </div>
 
       </nav>

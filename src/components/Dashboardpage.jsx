@@ -54,18 +54,20 @@ async function apiFetch(url, options = {}) {
     },
   });
 
-  // 🔥 Token expired
+  // 🔥 Token expired — try refresh first
   if (res.status === 401) {
     const refreshed = await refreshTokenApi();
 
     if (!refreshed) {
-      logout(); // ✅ This now goes to /login
-      return;
+      // Both access token and refresh token are dead → force logout
+      logout();
+      // Return a sentinel so callers can bail out silently
+      return null;
     }
 
     token = getToken();
 
-    // 🔁 retry
+    // 🔁 Retry with the new token
     res = await fetch(url, {
       ...options,
       headers: {
@@ -74,6 +76,12 @@ async function apiFetch(url, options = {}) {
         Authorization: `Bearer ${token}`,
       },
     });
+
+    // If still 401 after refresh, something is wrong — force logout
+    if (res.status === 401) {
+      logout();
+      return null;
+    }
   }
 
   return res;
@@ -388,9 +396,8 @@ function CreateProjectModal({ onClose, onCreated }) {
     if (!name.trim()) { setError("Project name is required."); return; }
     setLoading(true); setError(null);
     try {
-      const res = await fetch(`${BASE_URL}/api/projects/create`, {
+      const res = await apiFetch(`${BASE_URL}/api/projects/create`, {
         method: "POST",
-        headers: authHeaders(),
         body: JSON.stringify({ name: name.trim() }),
       });
       if (!res.ok) {
@@ -442,32 +449,72 @@ function CreateProjectModal({ onClose, onCreated }) {
    AI ANALYSIS VIEW
    ✅ FIX 1: Use correct endpoint per mode
 ───────────────────────────────────────────── */
-function AiAnalysisView({ issue, mode, onBack }) {
-  const [content, setContent] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [error,   setError]   = useState(null);
+function AiAnalysisView({ issue, mode, onBack, apiKey, projectId }) {
+  const [content,  setContent]  = useState(null);
+  const [loading,  setLoading]  = useState(true);
+  const [error,    setError]    = useState(null);
+  const [resolvedKey, setResolvedKey] = useState(apiKey || null);
+
+  // If apiKey wasn't passed yet, fetch it now from the project endpoint
+  useEffect(() => {
+    if (resolvedKey || !projectId) return;
+    apiFetch(`${BASE_URL}/api/projects/${projectId}/api-key`)
+      .then(r => r && r.ok ? r.json() : null)
+      .then(data => { if (data?.apiKey) setResolvedKey(data.apiKey); })
+      .catch(() => {});
+  }, [projectId, resolvedKey]);
 
   useEffect(() => {
     setLoading(true); setError(null); setContent(null);
 
-    // ✅ FIX 1: Route to different endpoints based on mode
-    // "fix"  → /api/logs/fix/{traceId}
-    // "root" → /api/logs/debug/{traceId}
-    const endpoint = mode === "fix"
-      ? `${BASE_URL}/api/logs/fix/${issue.traceId}`
-      : `${BASE_URL}/api/logs/debug/${issue.traceId}`;
+    // Use traceId if present, fall back to id
+    const traceId = issue.traceId || issue.id;
+    if (!traceId) {
+      setError("No trace ID found on this issue.");
+      setLoading(false);
+      return;
+    }
 
-    fetch(endpoint, { headers: authHeaders() })
+    const endpoint = mode === "fix"
+      ? `${BASE_URL}/api/logs/fix/${traceId}`
+      : `${BASE_URL}/api/logs/root-cause/${traceId}`;
+
+    // Build headers — send BOTH Bearer token AND x-api-key so whichever
+    // auth method the backend uses on these routes will match
+    const headers = {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${getToken()}`,
+      ...(resolvedKey ? { "x-api-key": resolvedKey } : {}),
+    };
+
+    fetch(endpoint, { headers })
       .then(r => {
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        if (r.status === 401) {
+          // Try refreshing then retry once
+          return refreshTokenApi().then(refreshed => {
+            if (!refreshed) { logout(); return null; }
+            return fetch(endpoint, {
+              headers: {
+                ...headers,
+                "Authorization": `Bearer ${getToken()}`,
+              }
+            });
+          });
+        }
+        return r;
+      })
+      .then(r => {
+        if (!r) return;
+        if (!r.ok) throw new Error(`${r.status} from ${endpoint}`);
         return r.text();
       })
       .then(raw => {
+        if (!raw) return;
         try {
           const data = JSON.parse(raw);
           const str = typeof data === "string"
             ? data
-            : data.result ?? data.content ?? data.message ?? data.analysis ?? JSON.stringify(data, null, 2);
+            : data.result ?? data.content ?? data.message ?? data.analysis ?? data.fix ?? data.rootCause ?? JSON.stringify(data, null, 2);
           setContent(str);
         } catch {
           setContent(raw);
@@ -475,7 +522,7 @@ function AiAnalysisView({ issue, mode, onBack }) {
         setLoading(false);
       })
       .catch(e => { setError(e.message); setLoading(false); });
-  }, [issue.traceId, mode]);
+  }, [issue.traceId, issue.id, mode, resolvedKey]);
 
   return (
     <div className="view-slide">
@@ -541,10 +588,8 @@ function IssuesTable({ projectId, onCountsReady, onAnalyze }) {
   useEffect(() => {
     if (!projectId) return;
     setLoading(true); setError(null);
-    fetch(`${BASE_URL}/api/issues/project/${projectId}`, {
-      headers: authHeaders()
-    })
-      .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
+    apiFetch(`${BASE_URL}/api/issues/project/${projectId}`)
+      .then(r => { if (!r || !r.ok) throw new Error(`HTTP ${r?.status}`); return r.json(); })
       .then(d => {
         setIssues(d); setLoading(false);
         onCountsReady?.({
@@ -554,7 +599,7 @@ function IssuesTable({ projectId, onCountsReady, onAnalyze }) {
           resolved: d.filter(i => i.status === "RESOLVED").length,
         });
       })
-      .catch(e => { setError(e.message); setLoading(false); });
+      .catch(e => { if (e) { setError(e.message); setLoading(false); } });
   }, [refresh, projectId]);
 
   function doRefresh() {
@@ -725,6 +770,16 @@ export default function DashboardPage() {
       });
   }, []);
 
+  // Auto-fetch API key whenever project changes so AI endpoints work immediately
+  useEffect(() => {
+    if (!projectId) return;
+    setApiKey(null);
+    apiFetch(`${BASE_URL}/api/projects/${projectId}/api-key`)
+      .then(r => r && r.ok ? r.json() : null)
+      .then(data => { if (data?.apiKey) setApiKey(data.apiKey); })
+      .catch(() => {});
+  }, [projectId]);
+
   const activeProject = projects.find(p => p.id === projectId);
   const hasProjects   = projects.length > 0;
 
@@ -766,9 +821,7 @@ export default function DashboardPage() {
   async function fetchApiKey() {
     if (!projectId) return;
     try {
-      const res = await fetch(`${BASE_URL}/api/projects/${projectId}/api-key`, {
-        headers: authHeaders()
-      });
+      const res = await apiFetch(`${BASE_URL}/api/projects/${projectId}/api-key`);
       if (!res.ok) throw new Error("Failed to fetch key");
       const data = await res.json();
       setApiKey(data.apiKey);
@@ -801,6 +854,8 @@ export default function DashboardPage() {
             issue={analyzing.issue}
             mode={analyzing.mode}
             onBack={() => setAnalyzing(null)}
+            apiKey={apiKey}
+            projectId={projectId}
           />
         ) : (
           <>

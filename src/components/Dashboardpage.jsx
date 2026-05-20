@@ -696,8 +696,8 @@ function IssuesTable({ projectId, onCountsReady, onAnalyze }) {
               <div className="it-td"><span className="it-time"><span className="it-time-val">{fmtDate(issue.lastSeen)}</span><span className="it-time-ago">{timeAgo(issue.lastSeen)}</span></span></div>
               <div className="it-td">
                 <div className="it-actions">
-                  <button className="it-btn-fix"  onClick={()=>onAnalyze(issue,"fix")}>⚡ Fix</button>
-                  <button className="it-btn-root" onClick={()=>onAnalyze(issue,"root")}>🔍 Root</button>
+                  <button className="it-btn-fix"  onClick={()=>onAnalyze(issue,"fix")}>Fix</button>
+                  <button className="it-btn-root" onClick={()=>onAnalyze(issue,"root")}>Root</button>
                 </div>
               </div>
             </div>

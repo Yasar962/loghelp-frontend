@@ -539,9 +539,9 @@ function AiAnalysisView({ issue, mode, onBack, apiKey, projectId }) {
         <div className="ai-panel-header">
           <div className="ai-panel-header-left">
             <span className={`ai-type-badge ${mode === "fix" ? "fix" : "root"}`}>
-              {mode === "fix" ? "⚡ Fix Suggestion" : "🔍 Root Cause"}
+              {mode === "fix" ? "Fix Suggestion" : "Root Cause"}
             </span>
-            <span className="ai-panel-sub">Powered by Gemini</span>
+            <span className="ai-panel-sub"></span>
           </div>
           <span className="ai-panel-meta">Issue #{issue.id} · {fmtDate(issue.lastSeen)}</span>
         </div>
